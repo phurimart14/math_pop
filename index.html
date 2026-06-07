@@ -66,8 +66,8 @@
     <!-- Game Workspace -->
     <main class="relative flex-1 w-full max-w-4xl mx-auto my-4 rounded-3xl overflow-hidden shadow-2xl border-4 border-white bg-slate-900">
         
-        <!-- Webcam feed (Hidden but active for AI) -->
-        <video id="webcam" class="absolute inset-0 w-full h-full object-cover opacity-30" autoplay playsinline></video>
+        <!-- Webcam feed (Completely Hidden from UI but active in memory for MediaPipe) -->
+        <video id="webcam" class="absolute pointer-events-none opacity-0 w-1 h-1" autoplay playsinline></video>
         
         <!-- Game Canvas: Draws camera track, hands, and bubbles -->
         <canvas id="game-canvas" class="absolute inset-0 w-full h-full object-cover z-0"></canvas>
@@ -106,6 +106,14 @@
                         🖱️ เล่นแบบใช้เมาส์คลิกแทน (ไม่มีกล้อง)
                     </button>
                 </div>
+            </div>
+        </div>
+
+        <!-- UI Screen 1.5: Countdown Overlay -->
+        <div id="countdown-overlay" class="absolute inset-0 bg-slate-900/90 flex flex-col justify-center items-center text-center p-6 z-15 transition-all duration-300 hidden">
+            <div class="space-y-4">
+                <span id="countdown-number" class="text-9xl font-extrabold text-yellow-400 drop-shadow-[0_5px_5px_rgba(0,0,0,0.5)] inline-block transition-all duration-300">3</span>
+                <p id="countdown-text" class="text-2xl font-bold text-white tracking-wide">เตรียมตัวจัดท่าทางนะเด็กๆ!</p>
             </div>
         </div>
 
@@ -216,6 +224,35 @@
                 osc.stop(audioCtx.currentTime + i * 0.15 + 0.3);
             });
         }
+
+        function playTickSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(500, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+        function playGoSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(700, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(1100, audioCtx.currentTime + 0.25);
+            gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.25);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.25);
+        }
     </script>
 
     <script>
@@ -225,6 +262,9 @@
         const startBtn = document.getElementById('start-btn');
         const skipCameraBtn = document.getElementById('skip-camera-btn');
         const setupOverlay = document.getElementById('setup-overlay');
+        const countdownOverlay = document.getElementById('countdown-overlay');
+        const countdownNumber = document.getElementById('countdown-number');
+        const countdownText = document.getElementById('countdown-text');
         const gameoverOverlay = document.getElementById('gameover-overlay');
         const playAgainBtn = document.getElementById('play-again-btn');
         const equationDisplay = document.getElementById('equation-display');
@@ -357,7 +397,8 @@
                 canvasCtx.save();
                 canvasCtx.translate(canvasElement.width, 0);
                 canvasCtx.scale(-1, 1);
-                canvasCtx.globalAlpha = 0.45; 
+                // Increased opacity to 0.7 for better visibility on the Canvas layer
+                canvasCtx.globalAlpha = 0.70; 
                 canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
                 canvasCtx.restore();
             } else {
@@ -494,8 +535,8 @@
             }
         }
 
-        // Start and timer configuration
-        function startGame() {
+        // Start Countdown before starting actual game
+        function startCountdown() {
             playerName = playerNameInput.value.trim() || "เด็กดี";
             playerHudName.innerText = `👤 ผู้เล่น: น้อง ${playerName}`;
             
@@ -503,11 +544,41 @@
             scoreText.innerText = score;
             timeLeft = gameDuration;
             timerText.innerText = timeLeft;
-            isPlaying = true;
             
+            // Hide menu & Show countdown screen
             setupOverlay.classList.add('hidden');
             gameoverOverlay.classList.add('hidden');
-            
+            countdownOverlay.classList.remove('hidden');
+
+            let countdownVal = 3;
+            countdownNumber.innerText = countdownVal;
+            countdownText.innerText = "เตรียมตัวจัดท่าทางนะเด็กๆ!";
+            playTickSound();
+
+            // Animate ping effect
+            countdownNumber.classList.remove('scale-150', 'opacity-0');
+            countdownNumber.classList.add('scale-100', 'opacity-100');
+
+            const countdownInterval = setInterval(() => {
+                countdownVal--;
+                if (countdownVal > 0) {
+                    countdownNumber.innerText = countdownVal;
+                    playTickSound();
+                } else if (countdownVal === 0) {
+                    countdownNumber.innerText = "เริ่ม!";
+                    countdownText.innerText = "ขอให้ได้คะแนนเยอะๆ นะครับ! 🚀";
+                    playGoSound();
+                } else {
+                    clearInterval(countdownInterval);
+                    countdownOverlay.classList.add('hidden');
+                    startGame(); // Start the actual gameplay
+                }
+            }, 1000);
+        }
+
+        // Start gameplay session after countdown ends
+        function startGame() {
+            isPlaying = true;
             generateEquation();
 
             // Run countdown clock
@@ -658,12 +729,12 @@
 
         startBtn.addEventListener('click', async () => {
             await initCamera();
-            startGame();
+            startCountdown();
         });
 
         skipCameraBtn.addEventListener('click', () => {
             isCameraActive = false;
-            startGame();
+            startCountdown();
         });
 
         playAgainBtn.addEventListener('click', () => {
