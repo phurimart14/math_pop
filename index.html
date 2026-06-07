@@ -154,7 +154,7 @@
 
         <!-- Touch Hint for Kids -->
         <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black/60 backdrop-blur-sm py-1.5 px-4 rounded-full text-center z-10">
-            <p class="text-white text-xs font-medium">ใช้นิ้วชี้จ่อค้างไว้เพื่อ "ระเบิดฟองสบู่" 🫧</p>
+            <p class="text-white text-xs font-medium">ใช้นิ้วชี้จ่อค้างไว้เพื่อ "ระเบิดฟองสบู่" 🫧 (รองรับสองมือพร้อมกันได้แล้วนะ! 👐)</p>
         </div>
     </main>
 
@@ -286,32 +286,53 @@
         let leftBubble = { x: 0, y: 0, r: 80, hoverProgress: 0, value: 0 };
         let rightBubble = { x: 0, y: 0, r: 80, hoverProgress: 0, value: 0 };
         
-        let fingerX = -100, fingerY = -100; 
+        // Array to store positions of all active pointers/hands
+        let activeFingers = []; 
         let isCameraActive = false;
         let particles = []; 
         let isCameraInited = false;
         let cameraObj = null;
 
-        // Function to dynamically position bubbles away from the current finger position
+        // Function to dynamically position bubbles away from ANY active finger positions
         function repositionBubbles() {
             const w = canvasElement.width;
             const h = canvasElement.height;
             
-            // Randomize left bubble within left 15%-40% area, avoiding the current finger position
+            // Randomize left bubble within left 15%-40% area, avoiding all finger positions
             let attempts = 0;
-            do {
+            let safe = false;
+            while (attempts < 15 && !safe) {
                 leftBubble.x = w * (0.15 + Math.random() * 0.25);
                 leftBubble.y = h * (0.35 + Math.random() * 0.45);
+                
+                let collision = false;
+                for (const finger of activeFingers) {
+                    if (Math.hypot(finger.x - leftBubble.x, finger.y - leftBubble.y) < leftBubble.r + 60) {
+                        collision = true;
+                        break;
+                    }
+                }
+                if (!collision) safe = true;
                 attempts++;
-            } while (attempts < 15 && Math.hypot(fingerX - leftBubble.x, fingerY - leftBubble.y) < leftBubble.r + 60);
+            }
 
-            // Randomize right bubble within right 60%-85% area, avoiding the current finger position
+            // Randomize right bubble within right 60%-85% area, avoiding all finger positions
             attempts = 0;
-            do {
+            safe = false;
+            while (attempts < 15 && !safe) {
                 rightBubble.x = w * (0.60 + Math.random() * 0.25);
                 rightBubble.y = h * (0.35 + Math.random() * 0.45);
+                
+                let collision = false;
+                for (const finger of activeFingers) {
+                    if (Math.hypot(finger.x - rightBubble.x, finger.y - rightBubble.y) < rightBubble.r + 60) {
+                        collision = true;
+                        break;
+                    }
+                }
+                if (!collision) safe = true;
                 attempts++;
-            } while (attempts < 15 && Math.hypot(fingerX - rightBubble.x, fingerY - rightBubble.y) < rightBubble.r + 60);
+            }
         }
 
         // Timer & Identity States
@@ -397,7 +418,6 @@
                 canvasCtx.save();
                 canvasCtx.translate(canvasElement.width, 0);
                 canvasCtx.scale(-1, 1);
-                // Increased opacity to 0.7 for better visibility on the Canvas layer
                 canvasCtx.globalAlpha = 0.70; 
                 canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
                 canvasCtx.restore();
@@ -418,18 +438,20 @@
                 checkHover(rightBubble);
             }
 
-            // Draw Pointer (Hand Indicator)
-            if (fingerX > 0 && fingerY > 0) {
-                canvasCtx.beginPath();
-                canvasCtx.arc(fingerX, fingerY, 20, 0, Math.PI * 2);
-                canvasCtx.fillStyle = 'rgba(234, 179, 8, 0.4)';
-                canvasCtx.fill();
+            // Draw Pointer (Hand Indicators) for all active fingers
+            activeFingers.forEach(finger => {
+                if (finger.x > 0 && finger.y > 0) {
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(finger.x, finger.y, 20, 0, Math.PI * 2);
+                    canvasCtx.fillStyle = 'rgba(234, 179, 8, 0.4)';
+                    canvasCtx.fill();
 
-                canvasCtx.beginPath();
-                canvasCtx.arc(fingerX, fingerY, 8, 0, Math.PI * 2);
-                canvasCtx.fillStyle = '#eab308';
-                canvasCtx.fill();
-            }
+                    canvasCtx.beginPath();
+                    canvasCtx.arc(finger.x, finger.y, 8, 0, Math.PI * 2);
+                    canvasCtx.fillStyle = '#eab308';
+                    canvasCtx.fill();
+                }
+            });
 
             renderParticles();
 
@@ -494,14 +516,21 @@
             }
         }
 
-        // Check if hand pointer resides inside bubble
+        // Check if ANY active pointer/hand resides inside the bubble
         function checkHover(bubble) {
-            const dx = fingerX - bubble.x;
-            const dy = fingerY - bubble.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+            let isHovered = false;
+            
+            for (const finger of activeFingers) {
+                const dx = finger.x - bubble.x;
+                const dy = finger.y - bubble.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance < bubble.r) {
+                    isHovered = true;
+                    break;
+                }
+            }
 
-            if (distance < bubble.r) {
-                // Pop speed increased to 0.2 (Takes ~5 frames / ~0.08s at 60 FPS / ~0.16s at 30 FPS)
+            if (isHovered) {
                 bubble.hoverProgress += 0.2; 
                 if (bubble.hoverProgress >= 1) {
                     triggerPop(bubble);
@@ -532,6 +561,8 @@
                 score = Math.max(0, score - 5); 
                 scoreText.innerText = score;
                 createExplosion(bubble.x, bubble.y, '#ef4444');
+                // Added Feature: Automatically skip to a new equation on incorrect answer
+                generateEquation(); 
             }
         }
 
@@ -649,43 +680,47 @@
         canvasElement.addEventListener('mousemove', (e) => {
             if (!isCameraActive && isPlaying) {
                 const rect = canvasElement.getBoundingClientRect();
-                fingerX = e.clientX - rect.left;
-                fingerY = e.clientY - rect.top;
+                const mx = e.clientX - rect.left;
+                const my = e.clientY - rect.top;
+                activeFingers = [{ x: mx, y: my }];
             }
         });
 
         canvasElement.addEventListener('mouseleave', () => {
             if (!isCameraActive) {
-                fingerX = -100;
-                fingerY = -100;
+                activeFingers = [];
             }
         });
 
         canvasElement.addEventListener('touchmove', (e) => {
             if (!isCameraActive && e.touches.length > 0 && isPlaying) {
                 const rect = canvasElement.getBoundingClientRect();
-                fingerX = e.touches[0].clientX - rect.left;
-                fingerY = e.touches[0].clientY - rect.top;
+                activeFingers = [];
+                for (let i = 0; i < e.touches.length; i++) {
+                    const tx = e.touches[i].clientX - rect.left;
+                    const ty = e.touches[i].clientY - rect.top;
+                    activeFingers.push({ x: tx, y: ty });
+                }
             }
         });
 
         canvasElement.addEventListener('touchend', () => {
             if (!isCameraActive) {
-                fingerX = -100;
-                fingerY = -100;
+                activeFingers = [];
             }
         });
 
-        // Initialize MediaPipe tracking callbacks
+        // Initialize MediaPipe tracking callbacks for MULTIPLE HANDS
         function onResults(results) {
+            activeFingers = [];
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                const hand = results.multiHandLandmarks[0];
-                const indexTip = hand[8]; // INDEX_FINGER_TIP
-                fingerX = (1 - indexTip.x) * canvasElement.width;
-                fingerY = indexTip.y * canvasElement.height;
-            } else {
-                fingerX = -100;
-                fingerY = -100;
+                for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                    const hand = results.multiHandLandmarks[i];
+                    const indexTip = hand[8]; // INDEX_FINGER_TIP
+                    const fx = (1 - indexTip.x) * canvasElement.width;
+                    const fy = indexTip.y * canvasElement.height;
+                    activeFingers.push({ x: fx, y: fy });
+                }
             }
         }
 
@@ -693,8 +728,9 @@
             locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
         });
 
+        // Configured to support up to 2 hands tracking simultaneously!
         hands.setOptions({
-            maxNumHands: 1,
+            maxNumHands: 2, 
             modelComplexity: 1,
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
