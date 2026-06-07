@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Math Pop AI - เกมบวกเลขหรรษาท้าทายเวลา</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Prompt for Thai Kids Friendly Vibe -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;600;800&display=swap" rel="stylesheet">
+    
+    <!-- MediaPipe Hands & Camera Utils CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            font-family: 'Prompt', sans-serif;
+            background: linear-gradient(135deg, #fef08a 0%, #bbf7d0 100%);
+            overflow: hidden;
+        }
+        /* Camera Mirroring for Natural Interaction */
+        #webcam {
+            transform: scaleX(-1);
+        }
+        /* Bubble Floating Animation for Visuals */
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) scale(1); }
+            50% { transform: translateY(-10px) scale(1.05); }
+        }
+        .floating-bubble {
+            animation: float 4s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col justify-between p-4 select-none">
+
+    <!-- Top Bar: Title, Score, Timer, and User Info -->
+    <header class="w-full max-w-4xl mx-auto flex flex-wrap gap-2 justify-between items-center bg-white/80 backdrop-blur-md p-4 rounded-2xl shadow-lg border-2 border-green-300 z-10">
+        <div class="flex items-center space-x-2">
+            <span class="text-4xl animate-bounce">🫧</span>
+            <div>
+                <h1 class="text-xl md:text-2xl font-extrabold text-green-700 tracking-wide">Math Pop AI</h1>
+                <p id="player-hud-name" class="text-xs text-green-600 font-bold bg-green-100 px-2 py-0.5 rounded-full inline-block">👤 ผู้เล่น: ยินดีต้อนรับ!</p>
+            </div>
+        </div>
+        <div class="flex space-x-2 md:space-x-4">
+            <div class="bg-red-100 px-3 py-1.5 rounded-xl border border-red-300 text-center min-w-[70px]">
+                <span class="text-[10px] font-bold text-red-700 block">⏳ เวลาเหลือ</span>
+                <span id="timer-text" class="text-lg font-extrabold text-red-600">0</span>
+            </div>
+            <div class="bg-yellow-100 px-3 py-1.5 rounded-xl border border-yellow-300 text-center min-w-[70px]">
+                <span class="text-[10px] font-bold text-yellow-700 block">คะแนน</span>
+                <span id="score-text" class="text-lg font-extrabold text-yellow-600">0</span>
+            </div>
+            <div class="bg-blue-100 px-3 py-1.5 rounded-xl border border-blue-300 text-center min-w-[70px] hidden md:block">
+                <span class="text-[10px] font-bold text-blue-700 block">สถิติสูงสุด</span>
+                <span id="highscore-text" class="text-lg font-extrabold text-blue-600">0</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Game Workspace -->
+    <main class="relative flex-1 w-full max-w-4xl mx-auto my-4 rounded-3xl overflow-hidden shadow-2xl border-4 border-white bg-slate-900">
+        
+        <!-- Webcam feed (Hidden but active for AI) -->
+        <video id="webcam" class="absolute inset-0 w-full h-full object-cover opacity-30" autoplay playsinline></video>
+        
+        <!-- Game Canvas: Draws camera track, hands, and bubbles -->
+        <canvas id="game-canvas" class="absolute inset-0 w-full h-full object-cover z-0"></canvas>
+
+        <!-- UI Screen 1: Start & Setup Screen (Name Input, Timer Select) -->
+        <div id="setup-overlay" class="absolute inset-0 bg-slate-950/90 flex flex-col justify-center items-center text-center p-6 z-20 transition-all duration-300">
+            <div class="bg-white p-6 md:p-8 rounded-3xl max-w-md w-full border-4 border-yellow-400 shadow-2xl space-y-5 overflow-y-auto max-h-full">
+                <div class="text-5xl animate-bounce">🤖✨</div>
+                <h2 class="text-xl md:text-2xl font-extrabold text-slate-800">ยินดีต้อนรับสู่ Math Pop AI!</h2>
+                
+                <!-- Player Name Input -->
+                <div class="text-left space-y-1">
+                    <label for="player-name-input" class="text-sm font-bold text-slate-700 block">👤 ใส่ชื่อของหนูๆ ตรงนี้เลย:</label>
+                    <input type="text" id="player-name-input" maxlength="15" placeholder="พิมพ์ชื่อเล่น..." class="w-full px-4 py-2.5 rounded-xl border-2 border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-500 font-bold text-center text-slate-800 text-lg">
+                </div>
+
+                <!-- Game Duration Select -->
+                <div class="text-left space-y-2">
+                    <span class="text-sm font-bold text-slate-700 block">⏱️ เลือกเวลาท้าทาย:</span>
+                    <div class="grid grid-cols-2 gap-3">
+                        <button id="time-30-btn" class="bg-yellow-100 hover:bg-yellow-200 border-2 border-yellow-400 text-yellow-800 font-extrabold py-2 px-4 rounded-xl transition-all focus:ring-2 focus:ring-yellow-500 scale-105" onclick="selectDuration(30)">
+                            ⚡ 30 วินาที
+                        </button>
+                        <button id="time-60-btn" class="bg-slate-100 hover:bg-slate-200 border-2 border-slate-300 text-slate-600 font-extrabold py-2 px-4 rounded-xl transition-all focus:ring-2 focus:ring-slate-400" onclick="selectDuration(60)">
+                            ⏱️ 1 นาที
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Control Buttons -->
+                <div class="flex flex-col space-y-2 pt-2">
+                    <button id="start-btn" class="w-full bg-green-500 hover:bg-green-600 active:scale-95 text-white font-extrabold py-3 px-6 rounded-2xl shadow-md transition-all text-lg">
+                        🎥 เปิดกล้อง & เริ่มท้าทาย!
+                    </button>
+                    <button id="skip-camera-btn" class="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-2.5 px-6 rounded-2xl text-xs transition-all">
+                        🖱️ เล่นแบบใช้เมาส์คลิกแทน (ไม่มีกล้อง)
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- UI Screen 2: Game Over & Leaderboard Screen -->
+        <div id="gameover-overlay" class="absolute inset-0 bg-slate-950/95 flex flex-col justify-center items-center text-center p-6 z-25 transition-all duration-300 hidden">
+            <div class="bg-white p-6 md:p-8 rounded-3xl max-w-md w-full border-4 border-pink-400 shadow-2xl space-y-4 overflow-y-auto max-h-full">
+                <div class="text-5xl animate-bounce">🎉🏆</div>
+                <h2 class="text-2xl font-extrabold text-pink-600">หมดเวลาแล้วจ้า!</h2>
+                
+                <div class="bg-yellow-50 p-4 rounded-2xl border-2 border-yellow-300 shadow-inner">
+                    <p class="text-slate-600 text-sm">ยอดเยี่ยมมาก!</p>
+                    <p class="text-slate-800 font-bold text-lg"><span id="summary-player-name" class="text-blue-600">น้องเด็กดี</span> ทำคะแนนได้:</p>
+                    <p class="text-4xl font-extrabold text-yellow-500 my-1"><span id="summary-score">0</span> คะแนน</p>
+                </div>
+
+                <!-- Local Leaderboard -->
+                <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-left">
+                    <h3 class="text-sm font-extrabold text-slate-700 mb-2 flex items-center justify-between">
+                        <span>🏆 อันดับคะแนนสูงสุดในเครื่อง:</span>
+                        <button onclick="clearLeaderboard()" class="text-[10px] text-red-500 hover:underline">ล้างสถิติ</button>
+                    </h3>
+                    <ol id="leaderboard-list" class="text-xs text-slate-600 space-y-1.5 list-decimal list-inside">
+                        <!-- Leaderboard items will be loaded dynamically -->
+                    </ol>
+                </div>
+
+                <button id="play-again-btn" class="w-full bg-pink-500 hover:bg-pink-600 active:scale-95 text-white font-extrabold py-3 px-6 rounded-2xl shadow-md transition-all text-lg">
+                    🔄 เล่นใหม่อีกครั้ง
+                </button>
+            </div>
+        </div>
+
+        <!-- HUD: Math Equation Panel Overlay -->
+        <div class="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white/90 backdrop-blur-md py-3 px-8 rounded-full border-4 border-pink-400 shadow-lg text-center z-10">
+            <span class="text-sm font-bold text-pink-500 block">โจทย์ข้อนี้คือ:</span>
+            <span id="equation-display" class="text-3xl font-extrabold text-pink-600 tracking-wider">กำลังโหลด...</span>
+        </div>
+
+        <!-- Touch Hint for Kids -->
+        <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black/60 backdrop-blur-sm py-1.5 px-4 rounded-full text-center z-10">
+            <p class="text-white text-xs font-medium">ใช้นิ้วชี้จ่อค้างไว้เพื่อ "ระเบิดฟองสบู่" 🫧</p>
+        </div>
+    </main>
+
+    <script>
+        /* --- Web Audio API Synth Engine for Cute Kid Sounds --- */
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playPopSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.15);
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.15);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.15);
+        }
+
+        function playCorrectSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+            osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1); // E5
+            osc.frequency.setValueAtTime(783.99, audioCtx.currentTime + 0.2); // G5
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.4);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.4);
+        }
+
+        function playWrongSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+            osc.frequency.linearRampToValueAtTime(80, audioCtx.currentTime + 0.3);
+            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.3);
+        }
+
+        function playGameOverSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const notes = [261.63, 329.63, 392.00, 523.25]; // C4, E4, G4, C5 arpeggio
+            notes.forEach((note, i) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(note, audioCtx.currentTime + i * 0.15);
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime + i * 0.15);
+                gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + i * 0.15 + 0.3);
+                osc.start(audioCtx.currentTime + i * 0.15);
+                osc.stop(audioCtx.currentTime + i * 0.15 + 0.3);
+            });
+        }
+    </script>
+
+    <script>
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('game-canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const startBtn = document.getElementById('start-btn');
+        const skipCameraBtn = document.getElementById('skip-camera-btn');
+        const setupOverlay = document.getElementById('setup-overlay');
+        const gameoverOverlay = document.getElementById('gameover-overlay');
+        const playAgainBtn = document.getElementById('play-again-btn');
+        const equationDisplay = document.getElementById('equation-display');
+        const scoreText = document.getElementById('score-text');
+        const highscoreText = document.getElementById('highscore-text');
+        const timerText = document.getElementById('timer-text');
+        const playerHudName = document.getElementById('player-hud-name');
+        const playerNameInput = document.getElementById('player-name-input');
+        const summaryPlayerName = document.getElementById('summary-player-name');
+        const summaryScore = document.getElementById('summary-score');
+        const leaderboardList = document.getElementById('leaderboard-list');
+
+        // State variables
+        let score = 0;
+        let highscore = localStorage.getItem('math_pop_highscore') || 0;
+        highscoreText.innerText = highscore;
+
+        let num1 = 0, num2 = 0, answer = 0;
+        let leftBubble = { x: 0, y: 0, r: 80, hoverProgress: 0, value: 0 };
+        let rightBubble = { x: 0, y: 0, r: 80, hoverProgress: 0, value: 0 };
+        
+        let fingerX = -100, fingerY = -100; 
+        let isCameraActive = false;
+        let particles = []; 
+        let isCameraInited = false;
+        let cameraObj = null;
+
+        // Function to dynamically position bubbles away from the current finger position
+        function repositionBubbles() {
+            const w = canvasElement.width;
+            const h = canvasElement.height;
+            
+            // Randomize left bubble within left 15%-40% area, avoiding the current finger position
+            let attempts = 0;
+            do {
+                leftBubble.x = w * (0.15 + Math.random() * 0.25);
+                leftBubble.y = h * (0.35 + Math.random() * 0.45);
+                attempts++;
+            } while (attempts < 15 && Math.hypot(fingerX - leftBubble.x, fingerY - leftBubble.y) < leftBubble.r + 60);
+
+            // Randomize right bubble within right 60%-85% area, avoiding the current finger position
+            attempts = 0;
+            do {
+                rightBubble.x = w * (0.60 + Math.random() * 0.25);
+                rightBubble.y = h * (0.35 + Math.random() * 0.45);
+                attempts++;
+            } while (attempts < 15 && Math.hypot(fingerX - rightBubble.x, fingerY - rightBubble.y) < rightBubble.r + 60);
+        }
+
+        // Timer & Identity States
+        let isPlaying = false;
+        let timeLeft = 30;
+        let gameDuration = 30; // default to 30
+        let timerInterval = null;
+        let playerName = "เด็กดี";
+
+        // Setup duration select styling
+        function selectDuration(seconds) {
+            gameDuration = seconds;
+            const btn30 = document.getElementById('time-30-btn');
+            const btn60 = document.getElementById('time-60-btn');
+            
+            if (seconds === 30) {
+                btn30.className = "bg-yellow-100 hover:bg-yellow-200 border-2 border-yellow-400 text-yellow-800 font-extrabold py-2 px-4 rounded-xl transition-all scale-105";
+                btn60.className = "bg-slate-100 hover:bg-slate-200 border-2 border-slate-300 text-slate-600 font-extrabold py-2 px-4 rounded-xl transition-all";
+            } else {
+                btn60.className = "bg-yellow-100 hover:bg-yellow-200 border-2 border-yellow-400 text-yellow-800 font-extrabold py-2 px-4 rounded-xl transition-all scale-105";
+                btn30.className = "bg-slate-100 hover:bg-slate-200 border-2 border-slate-300 text-slate-600 font-extrabold py-2 px-4 rounded-xl transition-all";
+            }
+        }
+
+        // Generate dynamic math problem (addition under 10)
+        function generateEquation() {
+            num1 = Math.floor(Math.random() * 6) + 1; // 1-6
+            num2 = Math.floor(Math.random() * (10 - num1)); // Ensured sum <= 10
+            answer = num1 + num2;
+
+            let wrongOption = answer + (Math.random() < 0.5 ? 1 : -1);
+            if (wrongOption < 0 || wrongOption === answer) {
+                wrongOption = answer + 2;
+            }
+
+            equationDisplay.innerText = `${num1} + ${num2} = ?`;
+
+            if (Math.random() < 0.5) {
+                leftBubble.value = answer;
+                rightBubble.value = wrongOption;
+            } else {
+                leftBubble.value = wrongOption;
+                rightBubble.value = answer;
+            }
+
+            // Move bubbles to new positions that are safe from double-popping
+            repositionBubbles();
+
+            leftBubble.hoverProgress = 0;
+            rightBubble.hoverProgress = 0;
+        }
+
+        // Setup Responsive Canvas Resolution
+        function resizeCanvas() {
+            canvasElement.width = canvasElement.parentElement.clientWidth;
+            canvasElement.height = canvasElement.parentElement.clientHeight;
+            
+            repositionBubbles();
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Create tiny sparkles when bubble is popped
+        function createExplosion(x, y, color) {
+            for (let i = 0; i < 20; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 8,
+                    vy: (Math.random() - 0.5) * 8,
+                    r: Math.random() * 6 + 3,
+                    color: color,
+                    alpha: 1
+                });
+            }
+        }
+
+        // Animation Loop for rendering canvas and updates
+        function gameLoop() {
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            if (isCameraActive) {
+                canvasCtx.save();
+                canvasCtx.translate(canvasElement.width, 0);
+                canvasCtx.scale(-1, 1);
+                canvasCtx.globalAlpha = 0.45; 
+                canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+                canvasCtx.restore();
+            } else {
+                const grad = canvasCtx.createLinearGradient(0, 0, 0, canvasElement.height);
+                grad.addColorStop(0, '#1e293b');
+                grad.addColorStop(1, '#0f172a');
+                canvasCtx.fillStyle = grad;
+                canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+            }
+
+            // Draw Bubbles only if game is actively playing
+            if (isPlaying) {
+                drawBubble(leftBubble, '#38bdf8', '#0284c7'); 
+                drawBubble(rightBubble, '#f472b6', '#db2777'); 
+                
+                checkHover(leftBubble);
+                checkHover(rightBubble);
+            }
+
+            // Draw Pointer (Hand Indicator)
+            if (fingerX > 0 && fingerY > 0) {
+                canvasCtx.beginPath();
+                canvasCtx.arc(fingerX, fingerY, 20, 0, Math.PI * 2);
+                canvasCtx.fillStyle = 'rgba(234, 179, 8, 0.4)';
+                canvasCtx.fill();
+
+                canvasCtx.beginPath();
+                canvasCtx.arc(fingerX, fingerY, 8, 0, Math.PI * 2);
+                canvasCtx.fillStyle = '#eab308';
+                canvasCtx.fill();
+            }
+
+            renderParticles();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Drawing a Beautiful Glossy Bubble
+        function drawBubble(bubble, baseColor, borderColor) {
+            canvasCtx.beginPath();
+            canvasCtx.arc(bubble.x, bubble.y, bubble.r + 5, 0, Math.PI * 2);
+            canvasCtx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+            canvasCtx.fill();
+
+            canvasCtx.beginPath();
+            canvasCtx.arc(bubble.x, bubble.y, bubble.r, 0, Math.PI * 2);
+            canvasCtx.strokeStyle = borderColor;
+            canvasCtx.lineWidth = 4;
+            canvasCtx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+            canvasCtx.fill();
+            canvasCtx.stroke();
+
+            if (bubble.hoverProgress > 0) {
+                canvasCtx.beginPath();
+                canvasCtx.arc(bubble.x, bubble.y, bubble.r + 10, -Math.PI / 2, (-Math.PI / 2) + (Math.PI * 2 * bubble.hoverProgress));
+                canvasCtx.strokeStyle = '#22c55e'; 
+                canvasCtx.lineWidth = 6;
+                canvasCtx.stroke();
+            }
+
+            canvasCtx.beginPath();
+            canvasCtx.arc(bubble.x - bubble.r * 0.3, bubble.y - bubble.r * 0.3, bubble.r * 0.2, 0, Math.PI * 2);
+            canvasCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            canvasCtx.fill();
+
+            canvasCtx.fillStyle = '#0f172a';
+            canvasCtx.font = '800 48px "Prompt"';
+            canvasCtx.textAlign = 'center';
+            canvasCtx.textBaseline = 'middle';
+            canvasCtx.fillText(bubble.value, bubble.x, bubble.y);
+        }
+
+        // Particle Explode Handler
+        function renderParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.alpha -= 0.02;
+                
+                if (p.alpha <= 0) {
+                    particles.splice(i, 1);
+                    continue;
+                }
+
+                canvasCtx.save();
+                canvasCtx.globalAlpha = p.alpha;
+                canvasCtx.beginPath();
+                canvasCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                canvasCtx.fillStyle = p.color;
+                canvasCtx.fill();
+                canvasCtx.restore();
+            }
+        }
+
+        // Check if hand pointer resides inside bubble
+        function checkHover(bubble) {
+            const dx = fingerX - bubble.x;
+            const dy = fingerY - bubble.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < bubble.r) {
+                // Pop speed increased to 0.2 (Takes ~5 frames / ~0.08s at 60 FPS / ~0.16s at 30 FPS)
+                bubble.hoverProgress += 0.2; 
+                if (bubble.hoverProgress >= 1) {
+                    triggerPop(bubble);
+                    bubble.hoverProgress = 0;
+                }
+            } else {
+                bubble.hoverProgress = Math.max(0, bubble.hoverProgress - 0.15);
+            }
+        }
+
+        // Verify action on bubble burst
+        function triggerPop(bubble) {
+            playPopSound();
+            createExplosion(bubble.x, bubble.y, '#22c55e');
+
+            if (bubble.value === answer) {
+                playCorrectSound();
+                score += 10;
+                if (score > highscore) {
+                    highscore = score;
+                    localStorage.setItem('math_pop_highscore', highscore);
+                    highscoreText.innerText = highscore;
+                }
+                scoreText.innerText = score;
+                generateEquation();
+            } else {
+                playWrongSound();
+                score = Math.max(0, score - 5); 
+                scoreText.innerText = score;
+                createExplosion(bubble.x, bubble.y, '#ef4444');
+            }
+        }
+
+        // Start and timer configuration
+        function startGame() {
+            playerName = playerNameInput.value.trim() || "เด็กดี";
+            playerHudName.innerText = `👤 ผู้เล่น: น้อง ${playerName}`;
+            
+            score = 0;
+            scoreText.innerText = score;
+            timeLeft = gameDuration;
+            timerText.innerText = timeLeft;
+            isPlaying = true;
+            
+            setupOverlay.classList.add('hidden');
+            gameoverOverlay.classList.add('hidden');
+            
+            generateEquation();
+
+            // Run countdown clock
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if (timeLeft > 0) {
+                    timeLeft--;
+                    timerText.innerText = timeLeft;
+                } else {
+                    endGameRound();
+                }
+            }, 1000);
+        }
+
+        // Complete current game round and display final scores
+        function endGameRound() {
+            isPlaying = false;
+            clearInterval(timerInterval);
+            playGameOverSound();
+
+            summaryPlayerName.innerText = `น้อง ${playerName}`;
+            summaryScore.innerText = score;
+
+            // Save and Display local leaderboard ranking
+            saveLeaderboard(playerName, score);
+            renderLeaderboard();
+
+            gameoverOverlay.classList.remove('hidden');
+        }
+
+        // Leaderboard storage management
+        function saveLeaderboard(name, finalScore) {
+            let list = JSON.parse(localStorage.getItem('math_pop_leaderboard')) || [];
+            list.push({ name: name, score: finalScore, date: new Date().toLocaleDateString('th-TH') });
+            list.sort((a, b) => b.score - a.score);
+            list = list.slice(0, 5); // top 5
+            localStorage.setItem('math_pop_leaderboard', JSON.stringify(list));
+        }
+
+        function renderLeaderboard() {
+            let list = JSON.parse(localStorage.getItem('math_pop_leaderboard')) || [];
+            leaderboardList.innerHTML = "";
+            
+            if (list.length === 0) {
+                leaderboardList.innerHTML = "<li class='text-center text-slate-400 list-none'>ไม่มีข้อมูลสถิติเดิมจ้า</li>";
+                return;
+            }
+
+            list.forEach((entry, idx) => {
+                const li = document.createElement('li');
+                let trophy = `${idx + 1}.`;
+                if (idx === 0) trophy = "🥇";
+                else if (idx === 1) trophy = "🥈";
+                else if (idx === 2) trophy = "🥉";
+
+                li.className = "flex justify-between items-center py-0.5 border-b border-dashed border-slate-200";
+                li.innerHTML = `<span>${trophy} น้อง <b>${entry.name}</b></span> <span class="text-pink-500 font-extrabold">${entry.score} คะแนน</span>`;
+                leaderboardList.appendChild(li);
+            });
+        }
+
+        function clearLeaderboard() {
+            localStorage.removeItem('math_pop_leaderboard');
+            renderLeaderboard();
+        }
+
+        /* --- Input Backup: Enable Mouse / Touch Interaction --- */
+        canvasElement.addEventListener('mousemove', (e) => {
+            if (!isCameraActive && isPlaying) {
+                const rect = canvasElement.getBoundingClientRect();
+                fingerX = e.clientX - rect.left;
+                fingerY = e.clientY - rect.top;
+            }
+        });
+
+        canvasElement.addEventListener('mouseleave', () => {
+            if (!isCameraActive) {
+                fingerX = -100;
+                fingerY = -100;
+            }
+        });
+
+        canvasElement.addEventListener('touchmove', (e) => {
+            if (!isCameraActive && e.touches.length > 0 && isPlaying) {
+                const rect = canvasElement.getBoundingClientRect();
+                fingerX = e.touches[0].clientX - rect.left;
+                fingerY = e.touches[0].clientY - rect.top;
+            }
+        });
+
+        canvasElement.addEventListener('touchend', () => {
+            if (!isCameraActive) {
+                fingerX = -100;
+                fingerY = -100;
+            }
+        });
+
+        // Initialize MediaPipe tracking callbacks
+        function onResults(results) {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const hand = results.multiHandLandmarks[0];
+                const indexTip = hand[8]; // INDEX_FINGER_TIP
+                fingerX = (1 - indexTip.x) * canvasElement.width;
+                fingerY = indexTip.y * canvasElement.height;
+            } else {
+                fingerX = -100;
+                fingerY = -100;
+            }
+        }
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults(onResults);
+
+        // Webcam stream startup handler
+        async function initCamera() {
+            if (isCameraInited) return;
+            try {
+                cameraObj = new Camera(videoElement, {
+                    onFrame: async () => {
+                        await hands.send({ image: videoElement });
+                    },
+                    width: 640,
+                    height: 480
+                });
+                await cameraObj.start();
+                isCameraActive = true;
+                isCameraInited = true;
+            } catch (err) {
+                console.error("Camera access failed: ", err);
+                isCameraActive = false;
+                const infoMsg = document.createElement('div');
+                infoMsg.className = "absolute top-24 left-1/2 transform -translate-x-1/2 bg-yellow-500 text-white px-4 py-2 rounded-xl text-xs font-semibold z-30 shadow-lg";
+                infoMsg.innerText = "⚠️ ไม่พบกล้อง/เข้าสู่โหมดจำลอง: ใช้เมาส์เลื่อนแตะคำตอบได้เลยครับ!";
+                document.body.appendChild(infoMsg);
+                setTimeout(() => infoMsg.remove(), 5000);
+            }
+        }
+
+        startBtn.addEventListener('click', async () => {
+            await initCamera();
+            startGame();
+        });
+
+        skipCameraBtn.addEventListener('click', () => {
+            isCameraActive = false;
+            startGame();
+        });
+
+        playAgainBtn.addEventListener('click', () => {
+            gameoverOverlay.classList.add('hidden');
+            setupOverlay.classList.remove('hidden');
+            score = 0;
+            scoreText.innerText = score;
+        });
+
+        // Initialize setup on page ready
+        timerText.innerText = gameDuration;
+        gameLoop();
+    </script>
+</body>
+</html>
